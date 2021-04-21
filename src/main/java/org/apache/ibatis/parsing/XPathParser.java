@@ -43,13 +43,21 @@ import org.xml.sax.SAXParseException;
 /**
  * @author Clinton Begin
  * @author Kazuki Shimizu
+ * 描述：基于 Java XPath 解析器，用于解析 MyBatis mybatis-config.xml 和 **Mapper.xml 等 XML 配置文件
  */
 public class XPathParser {
 
+  /**
+   * XML Document 对象
+   */
   private final Document document;
+  /** 是否校验  **/
   private boolean validation;
+  /** XML 实体解析器 **/
   private EntityResolver entityResolver;
+  /** 变量 Properties 对象 */
   private Properties variables;
+  /** Java XPath 对象  **/
   private XPath xpath;
 
   public XPathParser(String xml) {
