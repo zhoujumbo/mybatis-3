@@ -52,15 +52,15 @@ import org.apache.ibatis.util.MapUtil;
  */
 public class Reflector {
   /**
-   * 对应的类
+   * 所要解析的Class对象
    */
   private final Class<?> type;
   /**
-   * 可读属性数组
+   * 可读属性数组，从get或is开头的方法中截取的属性值以及字段名称，例如：getName -> name
    */
   private final String[] readablePropertyNames;
   /**
-   * 可写属性集合
+   * 可写属性集合，从set方法中截取的属性值以及字段名称，例如：setName -> name
    */
   private final String[] writablePropertyNames;
   /**
@@ -89,12 +89,14 @@ public class Reflector {
   private final Map<String, Class<?>> getTypes = new HashMap<>();
 
   /**
+   * 如果当前Class对象有无参构造器，则此字段为无参构造器
    * 默认无参构造方法，在 <1> 处初始化。{@link #addDefaultConstructor}
    */
   private Constructor<?> defaultConstructor;
 
   /**
    * 不区分大小写的属性集合
+   * key为所有属性的大写方式，value为对应的属性名称，例如：NAME -> name
    */
   private Map<String, String> caseInsensitivePropertyMap = new HashMap<>();
 
@@ -163,57 +165,103 @@ public class Reflector {
   /**
    * 解决 getting 冲突
    * 最终，一个属性，只保留一个对应的方法。
+   * 上述解决get方法冲突的方式主要是根据get方法的返回值进行判断，
+   * 当方法名相同时，则过滤掉父类方法，将子类中的方法作为最优的方法。
+   * 当解决完冲突后，将最优的get方法的先关信息保存到相关的集合中。
    * @param conflictingGetters
    */
   private void resolveGetterConflicts(Map<String, List<Method>> conflictingGetters) {
     // 遍历每个属性，查找其最匹配的方法。因为子类可以覆写父类的方法，所以一个属性，可能对应多个 getting 方法
     for (Entry<String, List<Method>> entry : conflictingGetters.entrySet()) {
-      Method winner = null;
-      String propName = entry.getKey();
-      boolean isAmbiguous = false;
+      Method winner = null; // 最匹配的方法
+      String propName = entry.getKey(); // 获取属性名
+      boolean isAmbiguous = false; // 是否冲突的标志
+      // 遍历每个属性中的多个方法， candidate: 候选方法
       for (Method candidate : entry.getValue()) {
+        // winner 为空，说明 candidate 为最匹配的方法
         if (winner == null) {
           winner = candidate;
           continue;
         }
+        // <1> 基于返回类型比较。获取当前最优方法的返回值类型
         Class<?> winnerType = winner.getReturnType();
+        // 获取候选方法的返回值类型
         Class<?> candidateType = candidate.getReturnType();
+        // 当最优返回值与候选返回值类型相同时
         if (candidateType.equals(winnerType)) {
+          // 返回值了诶选哪个相同，应该在 getClassMethods 方法中，已经合并。所以isAmbiguous设置为true，终止循环
           if (!boolean.class.equals(candidateType)) {
             isAmbiguous = true;
             break;
+
+            // 选择 boolean 类型的 is 方法
           } else if (candidate.getName().startsWith("is")) {
             winner = candidate;
           }
+
+          // 不符合选择子类
+          // isAssignableFrom() 方法为native方法，表示前一个类是否为后一个类的父类
         } else if (candidateType.isAssignableFrom(winnerType)) {
           // OK getter type is descendant
+          // 候选返回值为最优返回值的父类，或者接口时，则说名当前最优没问题,不做任何操作
+          // <1.1> 符合选择子类。因为子类可以修改放大返回值。所以出现该情况时，返回子类的该方法。
+          // 例如，父类的一个方法的返回值为 List ，子类对该方法的返回值可以覆写为 ArrayList 。
         } else if (winnerType.isAssignableFrom(candidateType)) {
+          // 当前最优返回值为候选返回值父类或者接口时，则进行调换
           winner = candidate;
+
+          // <1.2> isAmbiguous设置为true，终止循环
         } else {
           isAmbiguous = true;
           break;
         }
       }
+      // <2> 添加到 getMethods 和 getTypes 中
       addGetMethod(propName, winner, isAmbiguous);
     }
   }
 
+  /**
+   * 添加getter方法到getTypes中
+   * 对getMethods 集合 和 getTypes 集合进行填充
+   *
+   * @param name 属性名
+   * @param method 方法对象
+   * @param isAmbiguous 是否冲突的标志
+   */
   private void addGetMethod(String name, Method method, boolean isAmbiguous) {
+    // 当isAmbiguous 为true时，代表发生了异常
     MethodInvoker invoker = isAmbiguous
         ? new AmbiguousMethodInvoker(method, MessageFormat.format(
             "Illegal overloaded getter method with ambiguous type for property ''{0}'' in class ''{1}''. This breaks the JavaBeans specification and can cause unpredictable results.",
             name, method.getDeclaringClass().getName()))
         : new MethodInvoker(method);
+    // 添加到getMethods中
     getMethods.put(name, invoker);
+    // 获取其返回值， 对于TypeParameterResolver后面会进一步进行解析
+    /**  {@link TypeParameterResolver#resolveReturnType} **/
     Type returnType = TypeParameterResolver.resolveReturnType(method, type);
+    // 添加到 getTypes中，typeToClass（）获得 java.lang.reflect.Type 对应的类
     getTypes.put(name, typeToClass(returnType));
   }
 
+  /**
+   * 初始化 setMethods 和 setTypes
+   * @param clazz
+   */
   private void addSetMethods(Class<?> clazz) {
+    // 属性与其 setting 方法的映射。
     Map<String, List<Method>> conflictingSetters = new HashMap<>();
+    // 获取当前类的所有方法
     Method[] methods = getClassMethods(clazz);
-    Arrays.stream(methods).filter(m -> m.getParameterTypes().length == 1 && PropertyNamer.isSetter(m.getName()))
+    // 过滤掉参数个数大于1 并且方法名不符合规范的方法
+    Arrays.stream(methods)
+      // 过滤掉参数个数大于1 并且方法名不符合规范的方法
+      .filter(m -> m.getParameterTypes().length == 1 && PropertyNamer.isSetter(m.getName()))
+      // PropertyNamer.methodToProperty(name);获得属性
+      // 添加到 conflictingSetters 中
       .forEach(m -> addMethodConflict(conflictingSetters, PropertyNamer.methodToProperty(m.getName()), m));
+    // 解决Setter方法冲突
     resolveSetterConflicts(conflictingSetters);
   }
 
@@ -231,21 +279,33 @@ public class Reflector {
     }
   }
 
+  /**
+   * 解决setter冲突
+   * @param conflictingSetters
+   */
   private void resolveSetterConflicts(Map<String, List<Method>> conflictingSetters) {
+    // 遍历每个属性，查找其最匹配的方法。因为子类可以覆写父类的方法，所以一个属性，可能对应多个 setting 方法
     for (Entry<String, List<Method>> entry : conflictingSetters.entrySet()) {
-      String propName = entry.getKey();
-      List<Method> setters = entry.getValue();
+      String propName = entry.getKey(); // 获取属性名
+      List<Method> setters = entry.getValue();// 获取方法
       Class<?> getterType = getTypes.get(propName);
+      // 从getMethod中获取invoker, 若获取value与AmbiguousMethodInvoker 不是一个类型（应该都是Invoker类型），则说明出现冲突
       boolean isGetterAmbiguous = getMethods.get(propName) instanceof AmbiguousMethodInvoker;
+      // 设置setter方法默认不是冲突的
       boolean isSetterAmbiguous = false;
       Method match = null;
+      // <1> 遍历属性对应的 setting 方法
       for (Method setter : setters) {
+        // 与getter对比，此处多的就是考虑了对应的 getterType 为优先级最高
         if (!isGetterAmbiguous && setter.getParameterTypes()[0].equals(getterType)) {
           // should be the best match
+          // get方法不冲突(不为null)并且set方法参数值类型与get方法返回值类型一致，此时set为 best match
           match = setter;
           break;
         }
+        // 当set方法不冲突，但是返回值冲突的情况下，将选择更优的set方法
         if (!isSetterAmbiguous) {
+          // 选择最有的setter方法，并设置
           match = pickBetterSetter(match, setter, propName);
           isSetterAmbiguous = match == null;
         }
@@ -256,6 +316,13 @@ public class Reflector {
     }
   }
 
+  /**
+   * 获取最有的Setter方法类型
+   * @param setter1
+   * @param setter2
+   * @param property
+   * @return
+   */
   private Method pickBetterSetter(Method setter1, Method setter2, String property) {
     if (setter1 == null) {
       return setter2;
@@ -284,21 +351,33 @@ public class Reflector {
     setTypes.put(name, typeToClass(paramTypes[0]));
   }
 
+  /**
+   * 获得 java.lang.reflect.Type 对应的类
+   * 代码比较简单，就是寻找 Type 真正对应的类
+   * @param src
+   * @return
+   */
   private Class<?> typeToClass(Type src) {
     Class<?> result = null;
+    // 普通类型，直接使用类
     if (src instanceof Class) {
       result = (Class<?>) src;
+
+      // 泛型类型，使用泛型
     } else if (src instanceof ParameterizedType) {
       result = (Class<?>) ((ParameterizedType) src).getRawType();
+
+      // 泛型数组，获得具体类
     } else if (src instanceof GenericArrayType) {
       Type componentType = ((GenericArrayType) src).getGenericComponentType();
-      if (componentType instanceof Class) {
+      if (componentType instanceof Class) { // 普通类型
         result = Array.newInstance((Class<?>) componentType, 0).getClass();
       } else {
-        Class<?> componentClass = typeToClass(componentType);
+        Class<?> componentClass = typeToClass(componentType); // 递归该方法，返回类
         result = Array.newInstance(componentClass, 0).getClass();
       }
     }
+    // 都不符合，使用 Object 类
     if (result == null) {
       result = Object.class;
     }
@@ -306,8 +385,10 @@ public class Reflector {
   }
 
   private void addFields(Class<?> clazz) {
+    // 获得所有 field 们
     Field[] fields = clazz.getDeclaredFields();
     for (Field field : fields) {
+      // <1> 若 setMethods 不存在，添加到 setMethods 和 setTypes 中
       if (!setMethods.containsKey(field.getName())) {
         // issue #379 - removed the check for final because JDK 1.5 allows
         // modification of final fields through reflection (JSR-133). (JGB)
@@ -317,17 +398,25 @@ public class Reflector {
           addSetField(field);
         }
       }
+      // 添加到 getMethods 和 getTypes 中
       if (!getMethods.containsKey(field.getName())) {
         addGetField(field);
       }
     }
+    // 递归，处理父类
     if (clazz.getSuperclass() != null) {
       addFields(clazz.getSuperclass());
     }
   }
 
+  /**
+   *
+   * @param field
+   */
   private void addSetField(Field field) {
+    // 判断是合理的属性
     if (isValidPropertyName(field.getName())) {
+      // 注意，此处创建的是 SetFieldInvoker 对象
       setMethods.put(field.getName(), new SetFieldInvoker(field));
       Type fieldType = TypeParameterResolver.resolveFieldType(field, type);
       setTypes.put(field.getName(), typeToClass(fieldType));
@@ -336,6 +425,7 @@ public class Reflector {
 
   private void addGetField(Field field) {
     if (isValidPropertyName(field.getName())) {
+      // 注意，此处创建的是 GetFieldInvoker 对象
       getMethods.put(field.getName(), new GetFieldInvoker(field));
       Type fieldType = TypeParameterResolver.resolveFieldType(field, type);
       getTypes.put(field.getName(), typeToClass(fieldType));
