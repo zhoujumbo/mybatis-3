@@ -20,6 +20,7 @@ import java.util.Optional;
 
 /**
  * @deprecated Since 3.5.0, Will remove this class at future(next major version up).
+ * @废弃 从3.5.0开始，将在下一个大版本中移除
  */
 @Deprecated
 public abstract class OptionalUtil {
