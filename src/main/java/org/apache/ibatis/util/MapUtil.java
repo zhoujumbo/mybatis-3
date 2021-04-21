@@ -33,6 +33,7 @@ public class MapUtil {
     if (value != null) {
       return value;
     }
+    // java8 map方法，遍历map，若key对应的value为空，会将第二个参数的返回值存入并返回
     return map.computeIfAbsent(key, mappingFunction::apply);
   }
 
