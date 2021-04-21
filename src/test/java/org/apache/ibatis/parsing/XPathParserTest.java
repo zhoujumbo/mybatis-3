@@ -34,7 +34,7 @@ import org.xml.sax.InputSource;
 class XPathParserTest {
   private String resource = "resources/nodelet_test.xml";
 
-  // InputStream Source
+  // InputStream Source： 校验默认
   @Test
   void constructorWithInputStreamValidationVariablesEntityResolver() throws Exception {
 
