@@ -16,9 +16,20 @@
 package org.apache.ibatis.parsing;
 
 /**
+ * Token 处理器接口
+ *
+ * 该接口有四个实现类
+ * {@see BindingTokenParser}、{@see VariableTokenHandler}、{@see DynamicCheckerTokenParser}、{@see ParameterMappingTokenParser}
+ * 其中，只有{@see VariableTokenHandler}在parsing包下和解析器有关
  * @author Clinton Begin
  */
 public interface TokenHandler {
+  /**
+   * 处理 Token
+   * 在 {@link GenericTokenParser#parse(String)}的<x> 处用到了该调用
+   * @param content Token 字符串
+   * @return
+   */
   String handleToken(String content);
 }
 

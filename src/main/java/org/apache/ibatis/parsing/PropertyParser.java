@@ -18,6 +18,9 @@ package org.apache.ibatis.parsing;
 import java.util.Properties;
 
 /**
+ * 动态属性解析器
+ *
+ *
  * @author Clinton Begin
  * @author Kazuki Shimizu
  */
@@ -46,19 +49,51 @@ public class PropertyParser {
   private static final String ENABLE_DEFAULT_VALUE = "false";
   private static final String DEFAULT_VALUE_SEPARATOR = ":";
 
+  // <1>
+  // 构造方法，修饰符为 private ，禁止构造 PropertyParser 对象，因为它是一个静态方法的工具类。
   private PropertyParser() {
     // Prevent Instantiation
   }
 
+  // <2> 基于 variables 变量，替换 string 字符串中的动态属性，并返回结果。
   public static String parse(String string, Properties variables) {
+    // <2.1> 创建 {@see VariableTokenHandler} 对象,内部静态类，实现TokenHandler接口
     VariableTokenHandler handler = new VariableTokenHandler(variables);
+    // <2.2> 创建 {@see GenericTokenParser} 对象
+    // openToken = { ，closeToken = } ，这不就是上面看到的 ${username} 和 {password} 的么。
+    // 同时，handler 类型为 VariableTokenHandler ，也就是说，通过它实现自定义的处理逻辑 {@link VariableTokenHandler}
     GenericTokenParser parser = new GenericTokenParser("${", "}", handler);
+    // <2.3> 调用 GenericTokenParser#parse(String text) 方法，执行解析。
     return parser.parse(string);
   }
 
+  /**
+   *
+   */
   private static class VariableTokenHandler implements TokenHandler {
+    /**
+     * 变量 Properties 对象
+     */
     private final Properties variables;
+    /**
+     * 是否开启默认值功能。默认为 {@link #ENABLE_DEFAULT_VALUE}即不开启
+     * 想要开启，可以配置如下：
+     * <p>
+     *      <properties resource="org/mybatis/example/config.properties">
+     *        <property name="org.apache.ibatis.parsing.PropertyParser.enable-default-value" value="true"/>
+     *      </properties>
+     * <p/>
+     */
     private final boolean enableDefaultValue;
+    /**
+     * 默认值的分隔符。默认为 {@link #KEY_DEFAULT_VALUE_SEPARATOR} ，即 ":" 。
+     * 想要修改，可以配置如下：
+     * <p>
+     *    <properties resource="org/mybatis/example/config.properties">
+     *       <property name="org.apache.ibatis.parsing.PropertyParser.default-value-separator" value="?:"/>  分隔符被修改成了 ?:
+     *    </properties>
+     * <p/>
+     */
     private final String defaultValueSeparator;
 
     private VariableTokenHandler(Properties variables) {
@@ -75,21 +110,26 @@ public class PropertyParser {
     public String handleToken(String content) {
       if (variables != null) {
         String key = content;
+        // 开启默认值功能
         if (enableDefaultValue) {
+          // 查找默认值
           final int separatorIndex = content.indexOf(defaultValueSeparator);
           String defaultValue = null;
           if (separatorIndex >= 0) {
             key = content.substring(0, separatorIndex);
             defaultValue = content.substring(separatorIndex + defaultValueSeparator.length());
           }
+          // 有默认值，优先替换，不存在则返回默认值
           if (defaultValue != null) {
             return variables.getProperty(key, defaultValue);
           }
         }
+        // 未开启默认值功能，直接替换
         if (variables.containsKey(key)) {
           return variables.getProperty(key);
         }
       }
+      // 无 variables ，直接返回
       return "${" + content + "}";
     }
   }
