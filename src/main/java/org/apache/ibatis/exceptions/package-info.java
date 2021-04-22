@@ -15,5 +15,7 @@
  */
 /**
  * Base package for exceptions.
+ *
+ * 定义了 MyBatis 专有的 PersistenceException 和 TooManyResultsException 异常。
  */
 package org.apache.ibatis.exceptions;
