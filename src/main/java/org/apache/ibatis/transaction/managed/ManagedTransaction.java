@@ -33,15 +33,28 @@ import org.apache.ibatis.transaction.Transaction;
  *
  * @author Clinton Begin
  *
+ * 实现 Transaction 接口，基于容器管理的事务实现类。
+ *  事务的管理，交给了容器。实际很少使用
+ *
+ *  org.mybatis.spring.transaction.SpringManagedTransaction ，实现 Transaction 接口，基于 Spring 管理的事务实现类。实际真正在使用的
+ *
  * @see ManagedTransactionFactory
  */
 public class ManagedTransaction implements Transaction {
 
   private static final Log log = LogFactory.getLog(ManagedTransaction.class);
 
-  private DataSource dataSource;
-  private TransactionIsolationLevel level;
   private Connection connection;
+  private DataSource dataSource;
+  /**
+   * 事务隔离级别
+   */
+  private TransactionIsolationLevel level;
+  /**
+   * 是否关闭连接
+   *
+   * 这个属性是和 {@link org.apache.ibatis.transaction.jdbc.JdbcTransaction} 不同的
+   */
   private final boolean closeConnection;
 
   public ManagedTransaction(Connection connection, boolean closeConnection) {
@@ -75,6 +88,7 @@ public class ManagedTransaction implements Transaction {
 
   @Override
   public void close() throws SQLException {
+    // 如果开启关闭连接功能，则关闭连接
     if (this.closeConnection && this.connection != null) {
       if (log.isDebugEnabled()) {
         log.debug("Closing JDBC Connection [" + this.connection + "]");
@@ -87,7 +101,9 @@ public class ManagedTransaction implements Transaction {
     if (log.isDebugEnabled()) {
       log.debug("Opening JDBC Connection");
     }
+    // 获得连接
     this.connection = this.dataSource.getConnection();
+    // 设置隔离级别
     if (this.level != null) {
       this.connection.setTransactionIsolation(this.level.getLevel());
     }
