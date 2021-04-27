@@ -33,22 +33,22 @@ import java.lang.annotation.Target;
  * }
  * </pre>
  * @author Eduardo Macarron
+ *
+ *
+ * 匹配的 JDBC Type 类型的注解
+ *
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.TYPE)
 public @interface MappedJdbcTypes {
   /**
-   * Returns jdbc types to map {@link TypeHandler}.
-   *
-   * @return jdbc types
+   * @return 匹配的 JDBC Type 类型的注解
    */
   JdbcType[] value();
 
   /**
-   * Returns whether map to jdbc null type.
-   *
-   * @return {@code true} if map, {@code false} if otherwise
+   * @return 是否包含 {@link java.sql.JDBCType#NULL}
    */
   boolean includeNullJdbcType() default false;
 }

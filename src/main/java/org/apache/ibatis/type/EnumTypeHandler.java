@@ -21,10 +21,19 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 
 /**
+ * java.lang.Enum 和 java.util.String 的互相转换
+ *
+ * 因为数据库不存在枚举类型，所以讲枚举类型持久化到数据库有两种方式，
+ * Enum.name <=> String 和 Enum.ordinal <=> int 。
+ * 我们目前看到的 EnumTypeHandler 是前者，下面我们将看到的 EnumOrdinalTypeHandler 是后者
+ *
  * @author Clinton Begin
  */
 public class EnumTypeHandler<E extends Enum<E>> extends BaseTypeHandler<E> {
 
+  /**
+   * 枚举类
+   */
   private final Class<E> type;
 
   public EnumTypeHandler(Class<E> type) {
@@ -37,6 +46,7 @@ public class EnumTypeHandler<E extends Enum<E>> extends BaseTypeHandler<E> {
   @Override
   public void setNonNullParameter(PreparedStatement ps, int i, E parameter, JdbcType jdbcType) throws SQLException {
     if (jdbcType == null) {
+      // 将 Enum 转换成 String 类型
       ps.setString(i, parameter.name());
     } else {
       ps.setObject(i, parameter.name(), jdbcType.TYPE_CODE); // see r3589
@@ -45,7 +55,9 @@ public class EnumTypeHandler<E extends Enum<E>> extends BaseTypeHandler<E> {
 
   @Override
   public E getNullableResult(ResultSet rs, String columnName) throws SQLException {
+    // 获得 String 的值
     String s = rs.getString(columnName);
+    // 将 String 转换成 Enum 类型
     return s == null ? null : Enum.valueOf(type, s);
   }
 
