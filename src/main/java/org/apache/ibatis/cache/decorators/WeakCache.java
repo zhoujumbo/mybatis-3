@@ -23,15 +23,39 @@ import java.util.LinkedList;
 import org.apache.ibatis.cache.Cache;
 
 /**
- * Weak Reference cache decorator.
- * Thanks to Dr. Heinz Kabutz for his guidance here.
+ * 基于 java.lang.ref.WeakReference 的 Cache 实现类
+ *
+ * WeakEntry ，继承 WeakReference 类，因为要多定一个 key 属性，代表缓存键。
+ * #removeGarbageCollectedItems() 方法，从 delegate 中移除已经被 GC 回收的 WeakEntry 。
+ * 为什么能这样做呢？答案见 #putObject(Object key, Object value) 方法。
+ * #putObject(Object key, Object value) 方法，我们可以看到，添加到 delegate 中的值是创建的 WeakEntry 对象，
+ * 并且 WeakEntry 对象的 garbageCollectionQueue 属性为 queueOfGarbageCollectedEntries 。
+ * 也就说，如果 WeakEntry 对象被 GC 时，就会添加到 queueOfGarbageCollectedEntries 队列中，
+ * 那么 #removeGarbageCollectedItems() 方法就可以从 delegate 中移除已经被 GC 回收的 WeakEntry 。可能胖友会有点懵逼，但是这个真的非常有趣。
+ * #getObject(Object key) 方法：
+ * 首先，从 delegate 获取键对应的 WeakReference 对象。
+ * 如果，值为空，说明已经被 GC 掉，只能从 delegate 中移除。
+ * 如果，值非空，为了避免被 GC 掉，所以添加到 hardLinksToAvoidGarbageCollection 队头。但是，该队列设置了一个上限( numberOfHardLinks )，避免队列无限大。
+ * 另外，这里添加到 hardLinksToAvoidGarbageCollection 队头应该是有问题的。因为，可能存在重复添加，如果获取相同的键。
  *
  * @author Clinton Begin
  */
 public class WeakCache implements Cache {
+  /**
+   * 强引用的键的队列
+   */
   private final Deque<Object> hardLinksToAvoidGarbageCollection;
+  /**
+   * 被 GC 回收的 WeakEntry 集合，避免被 GC。
+   */
   private final ReferenceQueue<Object> queueOfGarbageCollectedEntries;
+  /**
+   * 装饰的 Cache 对象
+   */
   private final Cache delegate;
+  /**
+   * {@link #hardLinksToAvoidGarbageCollection} 的大小
+   */
   private int numberOfHardLinks;
 
   public WeakCache(Cache delegate) {
@@ -48,6 +72,7 @@ public class WeakCache implements Cache {
 
   @Override
   public int getSize() {
+    // 移除已经被 GC 回收的 WeakEntry
     removeGarbageCollectedItems();
     return delegate.getSize();
   }
@@ -58,22 +83,32 @@ public class WeakCache implements Cache {
 
   @Override
   public void putObject(Object key, Object value) {
+    // 移除已经被 GC 回收的 WeakEntry
     removeGarbageCollectedItems();
+    // 移除已经被 GC 回收的 WeakEntry
     delegate.putObject(key, new WeakEntry(key, value, queueOfGarbageCollectedEntries));
   }
 
   @Override
   public Object getObject(Object key) {
     Object result = null;
+
+    // 获得值的 WeakReference 对象
     @SuppressWarnings("unchecked") // assumed delegate cache is totally managed by this cache
     WeakReference<Object> weakReference = (WeakReference<Object>) delegate.getObject(key);
     if (weakReference != null) {
+      // 获得值
       result = weakReference.get();
+      // 为空，从 delegate 中移除 。为空的原因是，意味着已经被 GC 回收
       if (result == null) {
         delegate.removeObject(key);
+
+        // 非空，添加到 hardLinksToAvoidGarbageCollection 中，避免被 GC
       } else {
-        synchronized (hardLinksToAvoidGarbageCollection) {
+        synchronized (hardLinksToAvoidGarbageCollection) { // 同步
+          // 添加到 hardLinksToAvoidGarbageCollection 的队头
           hardLinksToAvoidGarbageCollection.addFirst(result);
+          // 超过上限，移除 hardLinksToAvoidGarbageCollection 的队尾
           if (hardLinksToAvoidGarbageCollection.size() > numberOfHardLinks) {
             hardLinksToAvoidGarbageCollection.removeLast();
           }
@@ -85,19 +120,27 @@ public class WeakCache implements Cache {
 
   @Override
   public Object removeObject(Object key) {
+    // 移除已经被 GC 回收的 WeakEntry
     removeGarbageCollectedItems();
+    // 移除出 delegate
     return delegate.removeObject(key);
   }
 
   @Override
   public void clear() {
-    synchronized (hardLinksToAvoidGarbageCollection) {
+    synchronized (hardLinksToAvoidGarbageCollection) { // 同步
+      // 清空 hardLinksToAvoidGarbageCollection
       hardLinksToAvoidGarbageCollection.clear();
     }
+    // 移除已经被 GC 回收的 WeakEntry
     removeGarbageCollectedItems();
+    // 清空 delegate
     delegate.clear();
   }
 
+  /**
+   * 移除已经被 GC 回收的键
+   */
   private void removeGarbageCollectedItems() {
     WeakEntry sv;
     while ((sv = (WeakEntry) queueOfGarbageCollectedEntries.poll()) != null) {
@@ -105,6 +148,9 @@ public class WeakCache implements Cache {
     }
   }
 
+  /**
+   * 键
+   */
   private static class WeakEntry extends WeakReference<Object> {
     private final Object key;
 
