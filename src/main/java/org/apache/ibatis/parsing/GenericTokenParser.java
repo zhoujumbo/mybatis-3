@@ -61,7 +61,6 @@ public class GenericTokenParser {
     do {
       // 转义字符
       if (start > 0 && src[start - 1] == '\\') {
-        // this open token is escaped. remove the backslash and continue.
         // 因为 openToken 前面一个位置是 \ 转义字符，所以忽略 \
         // 添加 [offset, start - offset - 1] 和 openToken 的内容，添加到 builder 中
         builder.append(src, offset, start - offset - 1).append(openToken);
@@ -70,7 +69,6 @@ public class GenericTokenParser {
 
         // 非转义字符
       } else {
-        // found open token. let's search close token.
         // 创建/重置 expression 对象
         if (expression == null) {
           expression = new StringBuilder();
@@ -86,7 +84,6 @@ public class GenericTokenParser {
         while (end > -1) {
           // 转义
           if (end > offset && src[end - 1] == '\\') {
-            // this close token is escaped. remove the backslash and continue.
             // 因为 endToken 前面一个位置是 \ 转义字符，所以忽略 \
             // 添加 [offset, end - offset - 1] 和 endToken 的内容，添加到 builder 中
             expression.append(src, offset, end - offset - 1).append(closeToken);
